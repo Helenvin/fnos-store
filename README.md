@@ -6,6 +6,12 @@
 
 > ⭐️ 如果觉得本项目对你有帮助，请右上角点个 Star！
 
+> [!IMPORTANT]
+> **Helenvin 定制 fork**：应用目录与安装包下载源已指向 [Helenvin/fnos-apps](https://github.com/Helenvin/fnos-apps)
+> （补丁位置：`internal/source/fnos_apps.go`、`internal/source/recommended.go`）。
+> 构建标签 `v1.9.4-hv1`；可安装 fpk 由 fnos-apps 仓库发布：
+> [fnos-apps-store/v1.9.5-hv1](https://github.com/Helenvin/fnos-apps/releases/tag/fnos-apps-store/v1.9.5-hv1)（ui/config 已改为 iframe，飞牛窗口内嵌打开）。
+
 ## 功能特性
 
 - 📦 浏览和安装 fnOS 第三方应用
