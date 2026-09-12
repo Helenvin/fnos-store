@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	defaultAppsJSONURL = "https://raw.githubusercontent.com/conversun/fnos-apps/main/apps.json"
-	githubReleaseBase  = "https://github.com/conversun/fnos-apps/releases/download"
+	defaultAppsJSONURL = "https://raw.githubusercontent.com/Helenvin/fnos-apps/main/apps.json"
+	githubReleaseBase  = "https://github.com/Helenvin/fnos-apps/releases/download"
 )
 
 type FNOSAppsSource struct {
