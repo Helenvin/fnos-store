@@ -346,7 +346,7 @@ func (a *LinuxAppCenter) UpgradeFpk(ctx context.Context, fpkPath string, params 
 	}, &task); err != nil {
 		return fmt.Errorf("升级失败: %w", err)
 	}
-	if err := a.waitTask(ctx, task.TaskID, "升级"); err != nil {
+	if err := a.waitTask(ctx, task.TaskID, "升级", a.verifyAppAtVersion(staged.AppName, staged.Version)); err != nil {
 		return err
 	}
 	// Reap the daemon's unpacked copy only once the task is DEFINITIVELY done.
@@ -411,6 +411,82 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// taskVerifier settles an unobservable task outcome by inspecting the
+// daemon's authoritative final state (the installed list `appcenter-cli list`
+// reports). ok means the operation's postcondition holds and the task may
+// be treated as completed; detail carries the evidence either way.
+type taskVerifier func() (ok bool, detail string)
+
+// verifyAppRegistered confirms an install: the app appears in the installed list.
+func (a *LinuxAppCenter) verifyAppRegistered(appname string) taskVerifier {
+	return func() (bool, string) {
+		apps, err := a.List()
+		if err != nil {
+			return false, "无法查询已装列表（" + err.Error() + "）"
+		}
+		for _, app := range apps {
+			if app.AppName == appname {
+				return true, appname + " 已注册（" + app.Version + "）"
+			}
+		}
+		return false, "已装列表中没有 " + appname
+	}
+}
+
+// verifyAppAtVersion confirms an upgrade: the app is registered at the target
+// version. Revision suffixes are trimmed on both sides: the daemon's list
+// reports the manifest version while staging reports fpk_version, and the two
+// diverge by -rN on re-releases.
+func (a *LinuxAppCenter) verifyAppAtVersion(appname, version string) taskVerifier {
+	return func() (bool, string) {
+		apps, err := a.List()
+		if err != nil {
+			return false, "无法查询已装列表（" + err.Error() + "）"
+		}
+		want := trimRevisionSuffix(version)
+		for _, app := range apps {
+			if app.AppName == appname {
+				if trimRevisionSuffix(app.Version) == want {
+					return true, appname + " 已是 " + app.Version
+				}
+				return false, appname + " 当前为 " + app.Version + "（目标 " + version + "）"
+			}
+		}
+		return false, "已装列表中没有 " + appname
+	}
+}
+
+// verifyAppAbsent confirms an uninstall: the app no longer appears in the
+// installed list.
+func (a *LinuxAppCenter) verifyAppAbsent(appname string) taskVerifier {
+	return func() (bool, string) {
+		apps, err := a.List()
+		if err != nil {
+			return false, "无法查询已装列表（" + err.Error() + "）"
+		}
+		for _, app := range apps {
+			if app.AppName == appname {
+				return false, appname + " 仍在已装列表（" + app.Version + "）"
+			}
+		}
+		return true, appname + " 已不在已装列表"
+	}
+}
+
+// trimRevisionSuffix drops a trailing -rN ("1.0.0-r2" → "1.0.0"). Anything
+// that is not digits after -r leaves the version untouched.
+func trimRevisionSuffix(v string) string {
+	i := strings.LastIndex(v, "-r")
+	if i <= 0 || i+2 >= len(v) {
+		return v
+	}
+	for _, c := range v[i+2:] {
+		if c < '0' || c > '9' {
+			return v
+		}
+	}
+	return v[:i]
+}
 // waitTask polls a daemon task to completion.
 //
 // It deliberately distinguishes three outcomes: success, definite failure, and
@@ -418,7 +494,12 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // failing — the daemon keeps working after we stop watching — and conflating
 // them is what turns a completed upgrade into a user-visible error plus a
 // retry that mutates the same app a second time.
-func (a *LinuxAppCenter) waitTask(ctx context.Context, taskID, what string) error {
+//
+// When the daemon no longer knows a task but a verify postcondition is
+// supplied, the daemon's authoritative final state settles the question
+// instead of guessing: confirmed → success; contradicted → still unknown,
+// now with evidence (issue #301).
+func (a *LinuxAppCenter) waitTask(ctx context.Context, taskID, what string, verify taskVerifier) error {
 	if taskID == "" {
 		return fmt.Errorf("%s失败: app center 未返回任务 ID", what)
 	}
@@ -452,11 +533,21 @@ func (a *LinuxAppCenter) waitTask(ctx context.Context, taskID, what string) erro
 		case daemonStatusSuccess:
 			return nil
 		case daemonStatusRunning:
-		case daemonStatusUnknownTask:
-			// The daemon has no record of this task. Reaped after completing, or
-			// lost to a restart — indistinguishable from here, so neither may be
-			// assumed.
-			return fmt.Errorf("%w: app center 已不再持有该%s任务", ErrTaskOutcomeUnknown, what)
+	case daemonStatusUnknownTask:
+		// The daemon has no record of this task. Reaped after completing, or
+		// lost to a restart — indistinguishable from the poll alone. The
+		// installed list is the daemon's authoritative final state, so when a
+		// postcondition is available it settles the question with evidence
+		// instead of an unconditional "结果未知" (issue #301).
+		if verify != nil {
+			ok, evidence := verify()
+			if ok {
+				log.Printf("waitTask: %s task %s unknown to daemon; final state confirms completion: %s", what, taskID, evidence)
+				return nil
+			}
+			return fmt.Errorf("%w: app center 已不再持有该%s任务（已核对当前状态：%s）", ErrTaskOutcomeUnknown, what, evidence)
+		}
+		return fmt.Errorf("%w: app center 已不再持有该%s任务", ErrTaskOutcomeUnknown, what)
 		default:
 			detail := st.Message
 			if detail == "" {
@@ -637,7 +728,7 @@ func (a *LinuxAppCenter) InstallFpkWithWizard(ctx context.Context, fpkPath strin
 	}, &task); err != nil {
 		return fmt.Errorf("安装失败: %w", err)
 	}
-	if err := a.waitTask(ctx, task.TaskID, "安装"); err != nil {
+	if err := a.waitTask(ctx, task.TaskID, "安装", a.verifyAppRegistered(staged.AppName)); err != nil {
 		return err
 	}
 	removeStagedPackage(staged.Path)

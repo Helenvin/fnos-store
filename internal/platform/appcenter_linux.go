@@ -162,7 +162,7 @@ func (a *LinuxAppCenter) Uninstall(ctx context.Context, appname string) error {
 		}
 		return nil
 	}
-	return a.waitTask(ctx, taskID, "卸载")
+	return a.waitTask(ctx, taskID, "卸载", a.verifyAppAbsent(appname))
 }
 
 func (a *LinuxAppCenter) Start(appname string) error {

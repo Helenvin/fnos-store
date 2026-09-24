@@ -46,7 +46,7 @@ func TestWaitTaskUnknownTaskIsIndeterminate(t *testing.T) {
 	a := NewLinuxAppCenter()
 
 	// When the task is awaited
-	err := a.waitTask(context.Background(), "task-1", "升级")
+	err := a.waitTask(context.Background(), "task-1", "升级", nil)
 
 	// Then the outcome is indeterminate, not a failure
 	if !errors.Is(err, ErrTaskOutcomeUnknown) {
@@ -70,7 +70,7 @@ func TestWaitTaskRidesOutTransientPollFailures(t *testing.T) {
 	a := NewLinuxAppCenter()
 
 	// When the task is awaited
-	if err := a.waitTask(context.Background(), "task-1", "升级"); err != nil {
+	if err := a.waitTask(context.Background(), "task-1", "升级", nil); err != nil {
 		t.Fatalf("waitTask: %v — a transient status poll must not fail the task", err)
 	}
 
@@ -89,7 +89,7 @@ func TestWaitTaskUnrecognisedStatusFails(t *testing.T) {
 	a := NewLinuxAppCenter()
 
 	// When the task is awaited
-	err := a.waitTask(context.Background(), "task-1", "安装")
+	err := a.waitTask(context.Background(), "task-1", "安装", nil)
 
 	// Then it is a failure carrying the daemon's own detail
 	if err == nil {
@@ -113,7 +113,7 @@ func TestWaitTaskCancellationIsIndeterminate(t *testing.T) {
 	cancel()
 
 	// When the caller has already gone away
-	err := a.waitTask(ctx, "task-1", "升级")
+	err := a.waitTask(ctx, "task-1", "升级", nil)
 
 	// Then the outcome is unknown, not failed
 	if !errors.Is(err, ErrTaskOutcomeUnknown) {
@@ -156,4 +156,104 @@ func TestRemoveStagedPackageOnlyTouchesStagingPaths(t *testing.T) {
 	// Empty and relative paths must be no-ops rather than panics or surprises.
 	removeStagedPackage("")
 	removeStagedPackage("appcenter-downloads/rel-tpk")
+}
+
+// writeListCLI installs a fake appcenter-cli whose `list` output is the given
+// table, so task verifiers can be exercised through the real parse path.
+func writeListCLI(t *testing.T, table string) string {
+	t.Helper()
+	script := "#!/bin/sh\ncat <<'TABLE'\n" + table + "\nTABLE\n"
+	path := filepath.Join(t.TempDir(), "appcenter-cli")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write list cli: %v", err)
+	}
+	return path
+}
+
+const jellyfinInstalledAtTarget = `│ APP NAME │ DISPLAY NAME │ VERSION │ STATUS │ DEPENDENCY APPS │
+│ jellyfin │ Jellyfin     │ 12.1    │ running│                 │`
+
+const jellyfinInstalledAtOldVersion = `│ APP NAME │ DISPLAY NAME │ VERSION │ STATUS │ DEPENDENCY APPS │
+│ jellyfin │ Jellyfin     │ 12.0    │ running│                 │`
+
+// When the daemon no longer knows a task but the installed list shows the app
+// at the upgrade target, the upgrade DID complete — the poll merely lost sight
+// of it. Report success instead of an unknowable error (issue #301: a user's
+// Jellyfin upgrade finished, the server started, and the store still cried
+// "app center 已不再持有该升级任务").
+func TestWaitTaskUnknownTaskSettledByFinalState(t *testing.T) {
+	// Given a daemon that no longer knows the task
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtTarget)}
+
+	// When the upgrade task is awaited with a postcondition
+	err := a.waitTask(context.Background(), "task-1", "升级", a.verifyAppAtVersion("jellyfin", "12.1"))
+
+	// Then the final state settles it as completed
+	if err != nil {
+		t.Fatalf("err = %v, want nil — final state confirms the upgrade", err)
+	}
+}
+
+// A revision suffix on the target must not defeat the check: staging reports
+// fpk_version (with -rN) while the daemon's list reports the manifest version.
+func TestWaitTaskUnknownTaskSettledDespiteRevisionSuffix(t *testing.T) {
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtTarget)}
+
+	if err := a.waitTask(context.Background(), "task-1", "升级", a.verifyAppAtVersion("jellyfin", "12.1-r2")); err != nil {
+		t.Fatalf("err = %v, want nil — -rN targets must compare by base version", err)
+	}
+}
+
+// When the installed list contradicts completion — the app is still at the OLD
+// version — the honest answer is still ErrTaskOutcomeUnknown (the task may
+// have died mid-flight with a restart), but now carrying the evidence.
+func TestWaitTaskUnknownTaskContradictedByFinalState(t *testing.T) {
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtOldVersion)}
+
+	err := a.waitTask(context.Background(), "task-1", "升级", a.verifyAppAtVersion("jellyfin", "12.1"))
+	if !errors.Is(err, ErrTaskOutcomeUnknown) {
+		t.Fatalf("err = %v, want ErrTaskOutcomeUnknown — a contradicted postcondition is not a proven failure", err)
+	}
+	if !strings.Contains(err.Error(), "12.0") {
+		t.Errorf("err = %q, want it to carry the observed current version as evidence", err)
+	}
+}
+
+// Install: registered in the list → settled as completed even though the task
+// handle was reaped before the first poll.
+func TestWaitTaskInstallSettledByRegistration(t *testing.T) {
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtTarget)}
+
+	if err := a.waitTask(context.Background(), "task-1", "安装", a.verifyAppRegistered("jellyfin")); err != nil {
+		t.Fatalf("err = %v, want nil — the app is registered", err)
+	}
+}
+
+// Uninstall: gone from the list → settled as completed.
+func TestWaitTaskUninstallSettledByAbsence(t *testing.T) {
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtTarget)}
+
+	if err := a.waitTask(context.Background(), "task-1", "卸载", a.verifyAppAbsent("picoclaw")); err != nil {
+		t.Fatalf("err = %v, want nil — picoclaw is gone from the list", err)
+	}
+}
+
+// Uninstall contradicted: the app is still registered → unknown outcome with
+// evidence, never a bare guess either way.
+func TestWaitTaskUninstallContradictedByPresence(t *testing.T) {
+	waitFakeDaemon(t, []string{`{"code":0,"data":{"status":5,"taskId":""}}`})
+	a := &LinuxAppCenter{CLIPath: writeListCLI(t, jellyfinInstalledAtTarget)}
+
+	err := a.waitTask(context.Background(), "task-1", "卸载", a.verifyAppAbsent("jellyfin"))
+	if !errors.Is(err, ErrTaskOutcomeUnknown) {
+		t.Fatalf("err = %v, want ErrTaskOutcomeUnknown", err)
+	}
+	if !strings.Contains(err.Error(), "仍在已装列表") {
+		t.Errorf("err = %q, want the observed presence as evidence", err)
+	}
 }
