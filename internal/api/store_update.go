@@ -49,6 +49,21 @@ func (s *Server) handlePostStoreUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A stale registry can offer the CURRENT version as an update (observed
+	// during the 1.9.6 rollout: the self-update happily re-installed 1.9.5
+	// onto itself). Re-installing the same bytes is wasted work at best, so
+	// refuse unless the target is strictly newer.
+	target := app.FpkVersion
+	if target == "" {
+		target = app.LatestVersion
+	}
+	if target != "" {
+		if current := s.storeVersion(); current != "" && core.CompareFpkVersions(target, current) <= 0 {
+			writeAPIError(w, http.StatusBadRequest, "已是最新版本（"+current+"），无需更新")
+			return
+		}
+	}
+
 	s.runSelfUpdate(w, r, app)
 }
 

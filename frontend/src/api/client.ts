@@ -18,6 +18,8 @@ export interface AppInfo {
   available_version?: string;
   has_update: boolean;
   update_ignored?: boolean;
+  /** Installed per the on-disk scan but unknown to app center (#312): the card offers 清理残留. */
+  half_registered?: boolean;
   platform: string;
   release_url: string;
   release_notes: string;
@@ -259,6 +261,15 @@ export const updateApp = (appname: string, onEvent: SSECallback): SSEHandle => {
 export const uninstallApp = (appname: string, onEvent: SSECallback): SSEHandle => {
   return streamSSE(apiUrl(`/api/apps/${appname}/uninstall`), onEvent);
 };
+
+export async function cleanupApp(appname: string): Promise<{ removed: string[]; docker_note?: string; warning?: string }> {
+  const res = await fetch(apiUrl(`/api/apps/${encodeURIComponent(appname)}/cleanup`), { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: '' }));
+    throw new Error(body.error || `清理失败: ${res.status}`);
+  }
+  return res.json();
+}
 
 export const reloadApps = (onEvent: SSECallback): SSEHandle => {
   return streamSSE(apiUrl('/api/apps/reload'), onEvent);

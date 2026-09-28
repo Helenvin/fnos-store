@@ -16,6 +16,7 @@ import {
   X,
   BellOff,
   Trash2,
+  Eraser,
 } from 'lucide-react';
 
 interface AppCardProps {
@@ -26,11 +27,13 @@ interface AppCardProps {
   /** false when this fnOS build cannot update apps without destroying them. */
   upgradeAllowed?: boolean;
   onUninstall?: (app: AppInfo) => void;
+  /** Offered for half-registered apps (#312): removes on-disk residue the daemon no longer knows. */
+  onCleanup?: (app: AppInfo) => void;
   onDetail?: (app: AppInfo) => void;
   onCancelOp?: (app: AppInfo) => void;
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onUninstall, onDetail, onCancelOp, upgradeAllowed = true }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onUninstall, onCleanup, onDetail, onCancelOp, upgradeAllowed = true }) => {
   const isInstalled = app.installed;
   const canUpdate = isInstalled && app.has_update;
 
@@ -196,6 +199,19 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
             </div>
 
             <div className="flex items-center gap-1.5">
+              {app.half_registered && onCleanup && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onCleanup(app)}
+                  disabled={!!operation}
+                  aria-label={`清理残留 ${app.display_name}`}
+                  title="清理残留（应用中心已丢失注册，卸载会失败时使用）"
+                  className="rounded-full h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Eraser className="h-3.5 w-3.5" />
+                </Button>
+              )}
               {isInstalled && onUninstall && (
                 <Button
                   size="sm"

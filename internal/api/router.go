@@ -93,6 +93,7 @@ func (s *Server) routes() {
 	s.Mux.HandleFunc("POST /api/apps/{appname}/install", s.handleInstall)
 	s.Mux.HandleFunc("POST /api/apps/{appname}/update", s.handleUpdate)
 	s.Mux.HandleFunc("POST /api/apps/{appname}/uninstall", s.handleUninstall)
+	s.Mux.HandleFunc("POST /api/apps/{appname}/cleanup", s.handleCleanup)
 	s.Mux.HandleFunc("GET /api/apps/{appname}/download", s.handleDownloadFpk)
 	s.Mux.HandleFunc("GET /api/apps/{appname}/wizard", s.handleGetWizard)
 	s.Mux.HandleFunc("GET /api/apps/{appname}/logs", s.handleGetAppLogs)

@@ -30,6 +30,15 @@ type appResponse struct {
 	AppType             string `json:"app_type,omitempty"`
 	Category            string `json:"category,omitempty"`
 	PostInstallNote     string `json:"post_install_note,omitempty"`
+	// HalfRegistered marks an installed-by-scan app the daemon no longer knows
+	// (#312): uninstall dead-ends with 10300 and the card offers 清理残留 instead.
+	HalfRegistered bool `json:"half_registered,omitempty"`
+}
+
+type cleanupResponse struct {
+	Removed    []string `json:"removed"`
+	DockerNote string   `json:"docker_note,omitempty"`
+	Warning    string   `json:"warning,omitempty"`
 }
 
 type appsListResponse struct {

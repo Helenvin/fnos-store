@@ -9,7 +9,7 @@ import ProgressOverlay from './components/ProgressOverlay';
 import SettingsDialog from './components/SettingsDialog';
 import WizardDialog from './components/WizardDialog';
 import RecommendedAppCard from './components/RecommendedAppCard';
-import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchWizard } from './api/client';
+import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, cleanupApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchWizard } from './api/client';
 import type { AppInfo, AppOperation, SSECallback, RecommendedApp, AppWizard, WizardParam } from './api/client';
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
@@ -96,6 +96,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(null);
   const [pendingUninstallApp, setPendingUninstallApp] = useState<AppInfo | null>(null);
+  const [pendingCleanupApp, setPendingCleanupApp] = useState<AppInfo | null>(null);
   // Apps can declare an install-time form (fnos/wizard/install). When one
   // exists we ask first, then install with the answers — matching what the
   // native App Center does. Previously the store silently accepted defaults,
@@ -472,6 +473,28 @@ const App: React.FC = () => {
       }
     }
   }, [pendingUninstallApp, createSSEHandler, setAppOp]);
+
+  const handleCleanup = (app: AppInfo) => {
+    setPendingCleanupApp(app);
+  };
+
+  const confirmCleanup = useCallback(async () => {
+    if (!pendingCleanupApp) return;
+    const app = pendingCleanupApp;
+    setPendingCleanupApp(null);
+    toast.info(`正在清理 ${app.display_name} 的残留...`);
+    try {
+      const res = await cleanupApp(app.appname);
+      if (res.warning) {
+        toast.warning(`已清理，但 ${res.warning}`);
+      } else {
+        toast.success(`已清理 ${app.display_name} 残留（${res.removed.length} 项）`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '清理失败');
+    }
+    loadApps(false);
+  }, [pendingCleanupApp]);
 
   const handleCancelOp = useCallback((app: AppInfo) => {
     const op = appOperations.get(app.appname);
@@ -1048,6 +1071,7 @@ const App: React.FC = () => {
                onInstall={handleInstall}
                onUpdate={handleUpdate}
                onUninstall={handleUninstall}
+               onCleanup={handleCleanup}
                onDetail={setDetailApp}
                onCancelOp={handleCancelOp}
                upgradeAllowed={upgradeAllowed}
@@ -1156,6 +1180,23 @@ const App: React.FC = () => {
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction onClick={confirmUninstall}>
               确认卸载
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingCleanupApp} onOpenChange={(open) => !open && setPendingCleanupApp(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认清理残留</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingCleanupApp?.display_name} 在应用中心已无注册（卸载会失败），此操作将删除其磁盘残留（含数据目录）。确定继续吗？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCleanup}>
+              确认清理
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

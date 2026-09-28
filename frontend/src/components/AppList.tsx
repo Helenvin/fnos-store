@@ -10,6 +10,7 @@ interface AppListProps {
   onInstall: (app: AppInfo) => void;
   onUpdate: (app: AppInfo) => void;
   onUninstall: (app: AppInfo) => void;
+  onCleanup: (app: AppInfo) => void;
   onDetail: (app: AppInfo) => void;
   onCancelOp?: (app: AppInfo) => void;
   filterType?: string;
@@ -30,7 +31,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, onUninstall, onDetail, onCancelOp, filterType, appOperations, searchQuery, upgradeAllowed }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, onUninstall, onCleanup, onDetail, onCancelOp, filterType, appOperations, searchQuery, upgradeAllowed }) => {
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -76,6 +77,7 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, o
           onInstall={onInstall}
           onUpdate={onUpdate}
           onUninstall={onUninstall}
+          onCleanup={onCleanup}
           onDetail={onDetail}
           onCancelOp={onCancelOp}
           upgradeAllowed={upgradeAllowed}

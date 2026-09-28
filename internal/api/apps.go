@@ -43,6 +43,11 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			availableVersion = app.FpkVersion
 		}
 
+		// #312: installed per the on-disk scan but absent from the daemon's
+		// authoritative list — the half-registered residue state the cleanup
+		// entry exists for.
+		halfRegistered := app.Installed && s.daemonMissing(app.AppName)
+
 		respApps = append(respApps, appResponse{
 			AppName:             app.AppName,
 			DisplayName:         app.DisplayName,
@@ -66,6 +71,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			AppType:             app.AppType,
 			Category:            app.Category,
 			PostInstallNote:     app.PostInstallNote,
+			HalfRegistered:      halfRegistered,
 		})
 	}
 
