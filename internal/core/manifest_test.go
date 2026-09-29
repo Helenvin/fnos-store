@@ -56,3 +56,22 @@ func TestScanInstalledSkipsMissingManifest(t *testing.T) {
 		t.Fatalf("ScanInstalled = %+v, want only ours", apps)
 	}
 }
+
+// This fork's catalog ships third-party native apps whose fpk keeps its
+// upstream `distributor` — LitePan (qilinzhu), the RROrg fn-* set, fnclearup,
+// fn-knock. They must be scanned, otherwise they can never get an update
+// badge. Regression guard for the distributor allow-list that used to drop
+// them (they stayed on "installed / up to date" forever).
+func TestScanInstalledKeepsThirdPartyManifest(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "LitePan", "appname         = LitePan\ndistributor     = qilinzhu\nversion         = 0.5.5\n")
+	writeManifest(t, dir, "fn-terminal", "appname         = fn-terminal\ndistributor     = RROrg\nversion         = 1.1.2\n")
+
+	apps, err := ScanInstalled(dir)
+	if err != nil {
+		t.Fatalf("ScanInstalled: %v", err)
+	}
+	if len(apps) != 2 {
+		t.Fatalf("ScanInstalled = %+v, want both third-party apps", apps)
+	}
+}

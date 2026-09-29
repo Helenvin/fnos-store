@@ -123,9 +123,15 @@ func ScanInstalled(appsDir string) ([]Manifest, error) {
 			continue
 		}
 
-		if m.Distributor != conversunDistributorTag {
-			continue
-		}
+		// Helenvin patch: this fork's catalog also ships third-party native
+		// apps whose fpk keeps its UPSTREAM `distributor` (LitePan=qilinzhu,
+		// the RROrg fn-* set=RROrg, fnclearup=一零一二, fn-knock=kci-lnk).
+		// Dropping them here silently made every one of them look permanently
+		// "installed / up to date": AppStatusUpdateAvailable is only ever set
+		// on the scan-hit path, and ReconcileInstalled() hard-codes the
+		// up-to-date status for any app this scan missed (registry.go).
+		// Merge() only reports apps that exist in the catalog, so accepting
+		// every distributor cannot surface unrelated installed apps.
 
 		apps = append(apps, *m)
 	}

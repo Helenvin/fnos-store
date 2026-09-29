@@ -70,7 +70,7 @@ jobs:
           VERSION="${TAG#v}"
           echo "Dispatching fnos-apps build for fnos-apps-store version $VERSION"
           gh workflow run build-apps.yml \
-            --repo conversun/fnos-apps \
+            --repo Helenvin/fnos-apps \
             --ref main \
             --field app=fnos-apps-store \
             --field version="$VERSION"
