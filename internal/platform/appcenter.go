@@ -1,5 +1,7 @@
 package platform
 
+import "strings"
+
 import "context"
 
 // InstalledApp represents an app installed via appcenter-cli.
@@ -93,4 +95,20 @@ type AppCenter interface {
 	// InstallFpkWithWizard installs a not-yet-installed app, passing the
 	// user's answers to the app's own install wizard.
 	InstallFpkWithWizard(ctx context.Context, fpkPath string, volume int, params []WizardParam) error
+}
+
+// TrimRevisionSuffix drops a trailing -rN ("1.0.0-r2" → "1.0.0"). Anything
+// that is not digits after -r leaves the version untouched. Shared by the
+// daemon-task verifier (rpc.go) and the store's post-install payload check.
+func TrimRevisionSuffix(v string) string {
+	i := strings.LastIndex(v, "-r")
+	if i <= 0 || i+2 >= len(v) {
+		return v
+	}
+	for _, c := range v[i+2:] {
+		if c < '0' || c > '9' {
+			return v
+		}
+	}
+	return v[:i]
 }

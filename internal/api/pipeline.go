@@ -534,8 +534,16 @@ func (p *installPipeline) verifyPayloadLanded(appname string, wantVolume int, wa
 		installed = m.Version
 	}
 	if installed != "" && installed != wantVersion {
-		return fmt.Errorf("更新校验失败：%s 仍是 %s，未升级到 %s。安装程序报告成功但未生效，请在应用中心手动更新",
-			appname, installed, wantVersion)
+		// A passthrough fpk's manifest carries only the base version — no
+		// fpk_version field — so a landed -rN revision reads back as its
+		// base (aellus 1.0.3-r1 verified as 1.0.3 and surfaced as a failed
+		// update, #318). When the shipped manifest cannot express a
+		// revision at all, accept the trimmed base as proof the payload
+		// landed; self-packaged manifests keep the exact fpk_version match.
+		if !(m.FpkVersion == "" && platform.TrimRevisionSuffix(installed) == platform.TrimRevisionSuffix(wantVersion)) {
+			return fmt.Errorf("更新校验失败：%s 仍是 %s，未升级到 %s。安装程序报告成功但未生效，请在应用中心手动更新",
+				appname, installed, wantVersion)
+		}
 	}
 	return nil
 }

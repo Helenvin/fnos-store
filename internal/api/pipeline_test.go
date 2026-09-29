@@ -1266,3 +1266,52 @@ func TestStartFailureRecovery(t *testing.T) {
 		})
 	}
 }
+
+// A passthrough fpk's manifest has no fpk_version, so a landed -rN revision
+// reads back as its base — that must verify as success (#318: aellus
+// 1.0.3-r1 surfaced as a failed update while the payload had landed).
+func TestVerifyPayloadLandedAcceptsPassthroughRevisionBase(t *testing.T) {
+	newSrv := func(manifest string) *installPipeline {
+		t.Helper()
+		appsDir := t.TempDir()
+		volDir := t.TempDir()
+		appDir := filepath.Join(appsDir, "aellus")
+		if err := os.MkdirAll(appDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(volDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(volDir, "aellus"), []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(volDir, filepath.Join(appDir, "target")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(appDir, "manifest"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return &installPipeline{queue: NewOperationQueue(), ac: &stubAppCenter{}, appsDir: appsDir}
+	}
+
+	t.Run("passthrough base satisfies an -rN target", func(t *testing.T) {
+		p := newSrv("appname         = aellus\nversion         = 1.0.3\n")
+		if err := p.verifyPayloadLanded("aellus", 0, "1.0.3-r1"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("self-packaged revisions keep the exact match", func(t *testing.T) {
+		p := newSrv("appname         = aellus\nversion         = 1.0.3\nfpk_version     = 1.0.3-r5\n")
+		if err := p.verifyPayloadLanded("aellus", 0, "1.0.3-r6"); err == nil {
+			t.Fatal("expected failure: r5 did not become r6")
+		}
+	})
+
+	t.Run("an older base still fails", func(t *testing.T) {
+		p := newSrv("appname         = aellus\nversion         = 1.0.2\n")
+		if err := p.verifyPayloadLanded("aellus", 0, "1.0.3-r1"); err == nil {
+			t.Fatal("expected failure: 1.0.2 is not 1.0.3")
+		}
+	})
+}

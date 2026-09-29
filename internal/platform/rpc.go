@@ -443,10 +443,10 @@ func (a *LinuxAppCenter) verifyAppAtVersion(appname, version string) taskVerifie
 		if err != nil {
 			return false, "无法查询已装列表（" + err.Error() + "）"
 		}
-		want := trimRevisionSuffix(version)
+		want := TrimRevisionSuffix(version)
 		for _, app := range apps {
 			if app.AppName == appname {
-				if trimRevisionSuffix(app.Version) == want {
+				if TrimRevisionSuffix(app.Version) == want {
 					return true, appname + " 已是 " + app.Version
 				}
 				return false, appname + " 当前为 " + app.Version + "（目标 " + version + "）"
@@ -473,20 +473,6 @@ func (a *LinuxAppCenter) verifyAppAbsent(appname string) taskVerifier {
 	}
 }
 
-// trimRevisionSuffix drops a trailing -rN ("1.0.0-r2" → "1.0.0"). Anything
-// that is not digits after -r leaves the version untouched.
-func trimRevisionSuffix(v string) string {
-	i := strings.LastIndex(v, "-r")
-	if i <= 0 || i+2 >= len(v) {
-		return v
-	}
-	for _, c := range v[i+2:] {
-		if c < '0' || c > '9' {
-			return v
-		}
-	}
-	return v[:i]
-}
 // waitTask polls a daemon task to completion.
 //
 // It deliberately distinguishes three outcomes: success, definite failure, and
@@ -533,21 +519,21 @@ func (a *LinuxAppCenter) waitTask(ctx context.Context, taskID, what string, veri
 		case daemonStatusSuccess:
 			return nil
 		case daemonStatusRunning:
-	case daemonStatusUnknownTask:
-		// The daemon has no record of this task. Reaped after completing, or
-		// lost to a restart — indistinguishable from the poll alone. The
-		// installed list is the daemon's authoritative final state, so when a
-		// postcondition is available it settles the question with evidence
-		// instead of an unconditional "结果未知" (issue #301).
-		if verify != nil {
-			ok, evidence := verify()
-			if ok {
-				log.Printf("waitTask: %s task %s unknown to daemon; final state confirms completion: %s", what, taskID, evidence)
-				return nil
+		case daemonStatusUnknownTask:
+			// The daemon has no record of this task. Reaped after completing, or
+			// lost to a restart — indistinguishable from the poll alone. The
+			// installed list is the daemon's authoritative final state, so when a
+			// postcondition is available it settles the question with evidence
+			// instead of an unconditional "结果未知" (issue #301).
+			if verify != nil {
+				ok, evidence := verify()
+				if ok {
+					log.Printf("waitTask: %s task %s unknown to daemon; final state confirms completion: %s", what, taskID, evidence)
+					return nil
+				}
+				return fmt.Errorf("%w: app center 已不再持有该%s任务（已核对当前状态：%s）", ErrTaskOutcomeUnknown, what, evidence)
 			}
-			return fmt.Errorf("%w: app center 已不再持有该%s任务（已核对当前状态：%s）", ErrTaskOutcomeUnknown, what, evidence)
-		}
-		return fmt.Errorf("%w: app center 已不再持有该%s任务", ErrTaskOutcomeUnknown, what)
+			return fmt.Errorf("%w: app center 已不再持有该%s任务", ErrTaskOutcomeUnknown, what)
 		default:
 			detail := st.Message
 			if detail == "" {
